@@ -60,6 +60,12 @@ app.post('/api/prioridad', async (req, res) => {
         // 2. Encolar en Redis (Garantiza tolerancia a fallos para el MS de Notificaciones)
         // Usamos lPush para meter el elemento en una lista (cola)
         await redisClient.lPush(REDIS_QUEUE_NAME, JSON.stringify(alertaFinal));
+
+        // Enviar al MS de Historial para persistencia
+        axios.post('http://historial:4000/api/historial', alertaFinal)
+            .then(() => console.log(`[Prioridad] Alerta enviada al Historial.`))
+            .catch(err => console.error(`[Prioridad Error] Fallo al enviar a Historial:`, err.message));
+        
         console.log(`[Redis] Alerta ${alertaFinal.alert_id} encolada de forma segura.`);
 
         // NOTA: Aquí también se haría la petición HTTP POST hacia el MS de Historial 
