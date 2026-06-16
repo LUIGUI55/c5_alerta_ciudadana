@@ -5,7 +5,6 @@ const path = require('path');
 // ==========================================
 // CONFIGURACIÓN DE ENTORNO
 // ==========================================
-// Escucha en todas las interfaces de red del contenedor (0.0.0.0)
 const GRPC_HOST = '0.0.0.0';
 const GRPC_PORT = process.env.GRPC_PORT || 50051;
 
@@ -23,26 +22,45 @@ const packageDefinition = protoLoader.loadSync(PROTO_PATH, {
 const geoProto = grpc.loadPackageDefinition(packageDefinition).geolocation;
 
 // ==========================================
-// LÓGICA DE NEGOCIO: ENRIQUECIMIENTO
+// LÓGICA DE NEGOCIO: GEOCODIFICACIÓN INVERSA
 // ==========================================
-function enrichAlertData(call, callback) {
+// Convertimos la función en async para poder usar await con fetch
+async function enrichAlertData(call, callback) {
     const alertRequest = call.request;
-    console.log(`\n[Geolocalización] Petición recibida para dispositivo: ${alertRequest.device_id}`);
+    console.log(`\n[Geolocalizacion] Peticion recibida para dispositivo: ${alertRequest.device_id}`);
 
     const lat = alertRequest.coordinates.lat;
     const lon = alertRequest.coordinates.lon;
 
-    let zone = "Desconocida";
-    let sector = "No asignado";
+    let zone = "Ubicacion desconocida";
+    let sector = "Sin clasificar";
 
-    // Lógica para el examen: Diferenciar zonas basadas en coordenadas simples
-    // Si recuerdas, al ESP32 #2 le pusimos lat: 19.33 y lon: -99.23
-    if (lat > 19.4 && lon > -99.2) {
-        zone = "Centro Histórico";
-        sector = "Sector Cuauhtémoc";
-    } else if (lat <= 19.4) {
-        zone = "Zona Sur";
-        sector = "Sector Coyoacán";
+    try {
+        console.log(`[Geolocalizacion] Consultando satelite para: ${lat}, ${lon}...`);
+
+        // Petición a OpenStreetMap. Por políticas de uso gratuito, requiere un User-Agent.
+        const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lon}`, {
+            headers: {
+                'User-Agent': 'C5-Alerta-Ciudadana/1.0 (Proyecto Academico)'
+            }
+        });
+
+        if (response.ok) {
+            const data = await response.json();
+
+            // Nominatim devuelve la dirección desglosada en un objeto 'address'
+            if (data && data.address) {
+                // Extraemos la colonia, municipio o ciudad para la Zona
+                zone = data.address.suburb || data.address.neighbourhood || data.address.city_district || data.address.city || "Zona no detectada";
+
+                // Extraemos la calle exacta o punto de interés para el Sector
+                sector = data.address.road || data.address.pedestrian || data.address.amenity || "Punto no mapeado";
+            }
+        } else {
+            console.warn("[Geolocalizacion Aviso] La API de mapas rechazo la conexion.");
+        }
+    } catch (error) {
+        console.error("[Geolocalizacion Error] Fallo al conectar con OpenStreetMap:", error.message);
     }
 
     const locationDetails = {
@@ -50,20 +68,20 @@ function enrichAlertData(call, callback) {
         sector: sector
     };
 
-    // Construir la respuesta respetando el contrato EnrichedAlertResponse
     const enrichedResponse = {
         success: true,
-        message: "Geolocalización calculada exitosamente",
+        message: "Geolocalizacion real calculada exitosamente",
         device_id: alertRequest.device_id,
         coordinates: alertRequest.coordinates,
         timestamp: alertRequest.timestamp,
         emergency_type: alertRequest.emergency_type,
-        location_details: JSON.stringify(locationDetails) // El proto lo define como string
+        press_count: alertRequest.press_count,
+        location_details: JSON.stringify(locationDetails)
     };
 
-    console.log(`[Geolocalización] Asignado a: ${zone} - ${sector}`);
+    console.log(`[Geolocalizacion] Ubicacion exacta: ${sector}, ${zone}`);
 
-    // Enviar respuesta de vuelta al cliente (Gateway de Recepción)
+    // Retornamos el resultado al servicio de Recepcion
     callback(null, enrichedResponse);
 }
 
@@ -73,16 +91,14 @@ function enrichAlertData(call, callback) {
 function main() {
     const server = new grpc.Server();
 
-    // Registrar el servicio y sus funciones
     server.addService(geoProto.GeolocationService.service, { EnrichAlertData: enrichAlertData });
 
-    // Iniciar el servidor
     server.bindAsync(`${GRPC_HOST}:${GRPC_PORT}`, grpc.ServerCredentials.createInsecure(), (error, port) => {
         if (error) {
-            console.error('[Geolocalización] Error al arrancar el servidor:', error);
+            console.error('[Geolocalizacion Error] Fallo al arrancar el servidor:', error);
             return;
         }
-        console.log(`[Geolocalización] Servidor gRPC escuchando en el puerto ${port}`);
+        console.log(`[Geolocalizacion] Servidor gRPC escuchando en el puerto ${port}`);
     });
 }
 

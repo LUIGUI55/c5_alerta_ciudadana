@@ -20,6 +20,21 @@ const poolReplica = new Pool({
 });
 
 const app = express();
+
+app.use((req, res, next) => {
+    res.header('Access-Control-Allow-Origin', '*');
+    // Autorizamos explícitamente los métodos, incluyendo PUT y OPTIONS
+    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
+
+    // Interceptar la petición de validación Preflight y responder con éxito inmediatamente
+    if (req.method === 'OPTIONS') {
+        return res.status(200).end();
+    }
+
+    next();
+});
+
 app.use(express.json());
 
 // ==========================================
@@ -122,6 +137,26 @@ app.get('/api/historial', async (req, res) => {
     } catch (error) {
         console.error('[DB Select Error] Fallo en la consulta:', error);
         res.status(500).json({ success: false, error: 'Error consultando el historial.' });
+    }
+});
+
+// ==========================================
+// ENDPOINT PARA ACTUALIZAR ESTADO (Hacia nodo Primario)
+// ==========================================
+app.put('/api/historial/:id/status', async (req, res) => {
+    const { id } = req.params;
+    const { status } = req.body;
+
+    // Las actualizaciones (UPDATE) siempre van al Pool Primario
+    const updateQuery = `UPDATE incidentes SET status = $1 WHERE alert_id = $2`;
+
+    try {
+        await poolPrimary.query(updateQuery, [status, id]);
+        console.log(`[Historial] Estado de alerta ${id} actualizado a: ${status}.`);
+        res.status(200).json({ success: true, message: 'Estado actualizado correctamente.' });
+    } catch (error) {
+        console.error('[DB Update Error] Fallo al actualizar estado:', error);
+        res.status(500).json({ success: false, error: 'Error actualizando el historial.' });
     }
 });
 

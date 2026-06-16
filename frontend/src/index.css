@@ -727,6 +727,7 @@ body {
   transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
   overflow: hidden;
   animation: slide-in-card 0.4s cubic-bezier(0.18, 0.89, 0.32, 1.28) forwards;
+  flex-shrink: 0;
 }
 
 .alert-card::before {

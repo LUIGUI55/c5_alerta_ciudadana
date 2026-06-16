@@ -2,6 +2,7 @@ services:
   # ==========================================
   # INFRAESTRUCTURA Y BASES DE DATOS
   # ==========================================
+  
   mosquitto:
     image: eclipse-mosquitto:latest
     container_name: c5_mosquitto
@@ -49,6 +50,7 @@ services:
       - POSTGRESQL_MASTER_PORT_NUMBER=5432
       - POSTGRESQL_REPLICATION_USER=repl_user
       - POSTGRESQL_REPLICATION_PASSWORD=repl_password
+      - POSTGRESQL_PASSWORD=c5_secret
     ports:
       - "5433:5432"
     networks:
@@ -73,78 +75,107 @@ services:
       - c5_network
 
   # ==========================================
-  # MICROSERVICIOS
+  # MICROSERVICIOS (MODO DESARROLLO / LIVE-RELOAD)
   # ==========================================
 
   recepcion:
-    build:
-      context: ./services/recepcion
+    image: node:20-alpine
+    container_name: c5_recepcion
+    working_dir: /app
+    volumes:
+      - ./services/recepcion:/app
+      - /app/node_modules
+    command: sh -c "npm install && node index.js"
     networks:
       - c5_network
-    deploy:
-      replicas: 3
     environment:
-      - MQTT_BROKER=mosquitto
+      - MQTT_BROKER=mqtt://mosquitto:1883
       - GRPC_GEOLOCALIZACION_URL=geolocalizacion:50051
     depends_on:
       - mosquitto
 
   geolocalizacion:
-    build:
-      context: ./services/geolocalizacion
+    image: node:20-alpine
     container_name: c5_geolocalizacion
+    working_dir: /app
+    volumes:
+      - ./services/geolocalizacion:/app
+      - /app/node_modules
+    command: sh -c "npm install && node index.js"
     networks:
       - c5_network
     ports:
       - "50051:50051"
 
   prioridad:
-    build:
-      context: ./services/prioridad
+    image: node:20-alpine
     container_name: c5_prioridad
+    working_dir: /app
+    volumes:
+      - ./services/prioridad:/app
+      - /app/node_modules
+    command: sh -c "npm install && node index.js"
     networks:
       - c5_network
+    environment:
+      - REDIS_URL=redis://redis:6379
     depends_on:
       - redis
 
   notificaciones:
-    build:
-      context: ./services/notificaciones
+    image: node:20-alpine
     container_name: c5_notificaciones
+    working_dir: /app
+    volumes:
+      - ./services/notificaciones:/app
+      - /app/node_modules
+    command: sh -c "npm install && node index.js"
     networks:
       - c5_network
     ports:
-      - "3000:3000" # Puerto para WebSockets
+      - "3000:3000"
+    environment:
+      - REDIS_URL=redis://redis:6379
     depends_on:
       - redis
 
   historial:
-    build:
-      context: ./services/historial
+    image: node:20-alpine
     container_name: c5_historial
+    working_dir: /app
+    volumes:
+      - ./services/historial:/app
+      - /app/node_modules
+    command: sh -c "npm install && node index.js"
     networks:
       - c5_network
+    ports:
+      - "4000:4000"
     environment:
       - DB_PRIMARY_URL=postgres://c5_admin:c5_secret@postgres-primary:5432/c5_alertas
       - DB_REPLICA_URL=postgres://c5_admin:c5_secret@postgres-replica:5432/c5_alertas
     depends_on:
       - postgres-primary
       - postgres-replica
-  
+
   # ==========================================
   # FRONTEND (OPERADORES C5)
   # ==========================================
+  
   frontend:
-    build:
-      context: ./frontend
+    image: node:20-alpine
     container_name: c5_frontend
-    ports:
-      - "80:5173" 
+    working_dir: /app
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    command: sh -c "npm install && npm run dev -- --host"
     networks:
       - c5_network
+    ports:
+      - "5173:5173" 
     environment:
-      # Variable de entorno para que React sepa a dónde conectar el WebSocket
-      - VITE_WS_URL=ws://localhost:3000 
+      - VITE_WS_URL=ws://localhost:3000
     depends_on:
       - notificaciones
 

@@ -2,14 +2,13 @@ const mqtt = require('mqtt');
 const grpc = require('@grpc/grpc-js');
 const protoLoader = require('@grpc/proto-loader');
 const path = require('path');
-const axios = require('axios');
 
 // ==========================================
-// CONFIGURACIÓN DE ENTORNO (Fácilmente escalable)
+// CONFIGURACIÓN DE ENTORNO
 // ==========================================
-const MQTT_BROKER = process.env.MQTT_BROKER || 'mqtt://localhost:1883';
-const MQTT_TOPIC = process.env.MQTT_TOPIC || 'c5/alerts';
-const GEOLOCATION_GRPC_URI = process.env.GEOLOCATION_GRPC_URI || 'localhost:50051';
+const MQTT_BROKER = process.env.MQTT_BROKER || 'mqtt://mosquitto:1883';
+const MQTT_TOPIC = process.env.MQTT_TOPIC || 'c5/alertas';
+const GEOLOCATION_GRPC_URI = process.env.GRPC_GEOLOCALIZACION_URL || 'geolocalizacion:50051';
 
 // ==========================================
 // CONFIGURACIÓN CLIENTE gRPC
@@ -24,14 +23,13 @@ const packageDefinition = protoLoader.loadSync(PROTO_PATH, {
 });
 const geoProto = grpc.loadPackageDefinition(packageDefinition).geolocation;
 
-// Instanciar el cliente gRPC (Insecure para desarrollo/entorno local de red)
 const geoClient = new geoProto.GeolocationService(
-    GEOLOCATION_GRPC_URI, 
+    GEOLOCATION_GRPC_URI,
     grpc.credentials.createInsecure()
 );
 
 // ==========================================
-// CONEXIÓN AL BROKER MQTT (Mosquitto)
+// CONEXIÓN AL BROKER MQTT
 // ==========================================
 console.log(`[Gateway] Conectando a MQTT Broker en: ${MQTT_BROKER}`);
 const mqttClient = mqtt.connect(MQTT_BROKER);
@@ -52,19 +50,16 @@ mqttClient.on('connect', () => {
 // ==========================================
 mqttClient.on('message', (topic, message) => {
     try {
-        // 1. Extraer el JSON
         const rawData = message.toString();
         const alertData = JSON.parse(rawData);
 
         console.log(`\n[Gateway] Mensaje recibido de ${topic}:`, alertData);
 
-        // 2. Validación estricta del formato (Rúbrica: ID, GPS, timestamp, tipo)
         if (!validateAlertFormat(alertData)) {
             console.error(`[Validación Fallida] El JSON recibido no cuenta con la estructura requerida.`);
-            return; // No bloquea, descarta el mensaje malformado e itera al siguiente
+            return;
         }
 
-        // 3. Llamada gRPC rápida al MS de Geolocalización
         sendToGeolocationService(alertData);
 
     } catch (error) {
@@ -72,35 +67,34 @@ mqttClient.on('message', (topic, message) => {
     }
 });
 
-// Función validadora de campos requeridos
+// ==========================================
+// FUNCIONES DE SOPORTE
+// ==========================================
 function validateAlertFormat(data) {
-    const requiredFields = ['device_id', 'coordinates', 'timestamp', 'emergency_type'];
+    // Añadido press_count a los campos obligatorios
+    const requiredFields = ['device_id', 'coordinates', 'timestamp', 'emergency_type', 'press_count'];
     const hasMainFields = requiredFields.every(field => data.hasOwnProperty(field) && data[field] !== null && data[field] !== '');
 
     if (!hasMainFields) return false;
-
-    // Validación de profundidad para las coordenadas
-    if (!data.coordinates.lat || !data.coordinates.lon) return false;
+    if (typeof data.coordinates.lat === 'undefined' || typeof data.coordinates.lon === 'undefined') return false;
 
     return true;
 }
 
-// Función encargada del envío por gRPC
 function sendToGeolocationService(data) {
-    // Definimos el payload que acepta nuestro archivo .proto
     const payload = {
         device_id: String(data.device_id),
         coordinates: {
-            lat: String(data.coordinates.lat),
-            lon: String(data.coordinates.lon)
+            lat: parseFloat(data.coordinates.lat),
+            lon: parseFloat(data.coordinates.lon)
         },
         timestamp: String(data.timestamp),
-        emergency_type: String(data.emergency_type)
+        emergency_type: String(data.emergency_type),
+        press_count: Number(data.press_count)
     };
 
     console.log(`[gRPC] Enviando datos a MS Geolocalización...`);
-    
-    // Llamada RPC asíncrona y veloz
+
     geoClient.EnrichAlertData(payload, (error, response) => {
         if (error) {
             console.error(`[gRPC Error] No se pudo comunicar con el MS de Geolocalización:`, error.message);
@@ -108,29 +102,33 @@ function sendToGeolocationService(data) {
         }
 
         if (response.success) {
-            console.log(`[gRPC Éxito] Dato enriquecido recibido.`);
+            console.log(`[gRPC Éxito] Dato enriquecido recibido. Enviando a Motor de Prioridad...`);
 
-            // Armamos el objeto final para mandar a Prioridad
             const payloadParaPrioridad = {
                 device_id: payload.device_id,
                 coordinates: payload.coordinates,
                 timestamp: payload.timestamp,
                 emergency_type: payload.emergency_type,
+                press_count: response.press_count,
                 location_details: JSON.parse(response.location_details)
             };
 
-            // Petición REST al MS de Prioridad
-            axios.post('http://prioridad:3000/api/prioridad', payloadParaPrioridad)
-                .then(res => console.log('[Gateway] Alerta enviada a Prioridad exitosamente.'))
+            // Petición REST nativa al MS de Prioridad
+            fetch('http://prioridad:3000/api/prioridad', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payloadParaPrioridad)
+            })
+                .then(res => res.json())
+                .then(data => console.log('[Gateway] Alerta enviada a Prioridad exitosamente.'))
                 .catch(err => console.error('[Gateway] Error enviando a Prioridad:', err.message));
-                
+
         } else {
             console.warn(`[gRPC Aviso] El MS procesó pero devolvió un estado fallido:`, response.message);
         }
     });
 }
 
-// Manejo de errores globales de MQTT
 mqttClient.on('error', (err) => {
     console.error('[MQTT Error] Error en el cliente MQTT:', err);
 });
