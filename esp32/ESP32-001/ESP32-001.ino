@@ -96,9 +96,9 @@ void sendAlert(int count) {
     coords["lon"] = gps.location.lng();
     Serial.println("Coordenadas reales obtenidas del satelite.");
   } else {
-    Serial.println("ADVERTENCIA: Sin fix satelital aun. Enviando coordenadas 0.0");
-    coords["lat"] = 0.0;
-    coords["lon"] = 0.0;
+    Serial.println("ADVERTENCIA: Sin fix satelital aun. Enviando coordenadas definidas");
+    coords["lat"] = 19.916568972719457;
+    coords["lon"] = -99.58105226618602;
   }
   
   doc["emergency_type"] = "desconocida";
