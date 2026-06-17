@@ -1508,6 +1508,19 @@ body {
   margin-top: 10px;
 }
 
+/* Colores dinámicos para los estados de la tabla */
+.status-green {
+  color: #00ffcc;
+  border: 1px solid #00ffcc;
+  background-color: rgba(0, 255, 204, 0.1);
+}
+
+.status-red {
+  color: #ff3366;
+  border: 1px solid #ff3366;
+  background-color: rgba(255, 51, 102, 0.1);
+}
+
 /* ==========================================================================
    ANIMACIONES CLAVE (@KEYFRAMES) Y EFECTOS DE MOVIMIENTO
    ========================================================================== */

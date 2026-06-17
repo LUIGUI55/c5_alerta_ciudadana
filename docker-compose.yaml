@@ -66,21 +66,22 @@ services:
     image: nginx:alpine
     container_name: c5_nginx_lb
     ports:
-      - "8080:80"
+      - "80:80"
     volumes:
       - ./services/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
     depends_on:
-      - recepcion
+      - recepcion-1
+      - recepcion-2
+      - recepcion-3
     networks:
       - c5_network
 
   # ==========================================
   # MICROSERVICIOS (MODO DESARROLLO / LIVE-RELOAD)
   # ==========================================
-
-  recepcion:
+  recepcion-1:
     image: node:20-alpine
-    container_name: c5_recepcion
+    container_name: c5_recepcion_1
     working_dir: /app
     volumes:
       - ./services/recepcion:/app
@@ -91,8 +92,40 @@ services:
     environment:
       - MQTT_BROKER=mqtt://mosquitto:1883
       - GRPC_GEOLOCALIZACION_URL=geolocalizacion:50051
-    depends_on:
-      - mosquitto
+    expose:
+      - "3000"
+
+  recepcion-2:
+    image: node:20-alpine
+    container_name: c5_recepcion_2
+    working_dir: /app
+    volumes:
+      - ./services/recepcion:/app
+      - /app/node_modules
+    command: sh -c "npm install && node index.js"
+    networks:
+      - c5_network
+    environment:
+      - MQTT_BROKER=mqtt://mosquitto:1883
+      - GRPC_GEOLOCALIZACION_URL=geolocalizacion:50051
+    expose:
+      - "3000"
+
+  recepcion-3:
+    image: node:20-alpine
+    container_name: c5_recepcion_3
+    working_dir: /app
+    volumes:
+      - ./services/recepcion:/app
+      - /app/node_modules
+    command: sh -c "npm install && node index.js"
+    networks:
+      - c5_network
+    environment:
+      - MQTT_BROKER=mqtt://mosquitto:1883
+      - GRPC_GEOLOCALIZACION_URL=geolocalizacion:50051
+    expose:
+      - "3000"
 
   geolocalizacion:
     image: node:20-alpine
@@ -133,7 +166,7 @@ services:
     networks:
       - c5_network
     ports:
-      - "3000:3000"
+      - "3001:3001"
     environment:
       - REDIS_URL=redis://redis:6379
     depends_on:
@@ -175,7 +208,7 @@ services:
     ports:
       - "5173:5173" 
     environment:
-      - VITE_WS_URL=ws://localhost:3000
+      - VITE_WS_URL=ws://localhost:3001
     depends_on:
       - notificaciones
 

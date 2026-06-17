@@ -4,12 +4,37 @@ function HistoryTable() {
   const [history, setHistory] = useState([]);
   const [loading, setLoading] = useState(false);
 
-  // Función para consumir el MS de Historial vía REST
+  // Estados para controlar los filtros
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
+  const [zone, setZone] = useState("");
+  const [priority, setPriority] = useState("");
+
+  // Función para consumir el MS de Historial vía REST aplicando los filtros
   const fetchHistory = async () => {
     setLoading(true);
     try {
-      // La IP/Puerto dependerá de cómo expongas el servicio en Docker Compose
-      const response = await fetch("http://localhost:4000/api/historial");
+      // Construimos dinámicamente los parámetros de la URL
+      const queryParams = new URLSearchParams();
+
+      if (startDate && endDate) {
+        // Al enviar las fechas, agregamos horas para cubrir el rango del día completo en PostgreSQL
+        queryParams.append("start_date", `${startDate} 00:00:00`);
+        queryParams.append("end_date", `${endDate} 23:59:59`);
+      }
+
+      if (zone) {
+        queryParams.append("zone", zone);
+      }
+
+      if (priority) {
+        queryParams.append("priority_level", priority);
+      }
+
+      // Concatenamos los parámetros a la URL base
+      const url = `http://localhost:4000/api/historial?${queryParams.toString()}`;
+
+      const response = await fetch(url);
       if (response.ok) {
         const result = await response.json();
         setHistory(result.data);
@@ -22,7 +47,7 @@ function HistoryTable() {
   };
 
   useEffect(() => {
-    // Carga inicial del historial
+    // Carga inicial del historial (sin filtros para mostrar todo)
     fetchHistory();
   }, []);
 
@@ -36,15 +61,48 @@ function HistoryTable() {
         </div>
 
         <div className="history-filters">
+          {/* Filtro: Rango de Fechas */}
           <div className="search-box">
-            <input type="text" placeholder="Buscar ID o Zona..." />
+            <input
+              type="date"
+              value={startDate}
+              onChange={(e) => setStartDate(e.target.value)}
+              title="Fecha de inicio"
+            />
           </div>
-          <div className="filter-buttons">
-            <button className="btn-filter active">TODOS</button>
-            <button className="btn-filter">CRÍTICOS</button>
+          <div className="search-box">
+            <input
+              type="date"
+              value={endDate}
+              onChange={(e) => setEndDate(e.target.value)}
+              title="Fecha de fin"
+            />
           </div>
+
+          {/* Filtro: Zona Geográfica */}
+          <div className="search-box">
+            <input
+              type="text"
+              placeholder="Escriba una zona..."
+              value={zone}
+              onChange={(e) => setZone(e.target.value)}
+            />
+          </div>
+
+          {/* Filtro: Nivel de Prioridad */}
+          <select
+            className="tactical-select"
+            value={priority}
+            onChange={(e) => setPriority(e.target.value)}
+          >
+            <option value="">TODAS LAS PRIORIDADES</option>
+            <option value="crítico">CRÍTICO</option>
+            <option value="alto">ALTO</option>
+            <option value="medio">MEDIO</option>
+          </select>
+
           <button className="btn btn-sm btn-neon-blue" onClick={fetchHistory}>
-            ACTUALIZAR
+            FILTRAR
           </button>
         </div>
       </div>
@@ -72,7 +130,7 @@ function HistoryTable() {
                     color: "var(--text-muted)",
                   }}
                 >
-                  No hay registros en la base de datos.
+                  No hay registros que coincidan con los filtros.
                 </td>
               </tr>
             ) : (
@@ -88,7 +146,9 @@ function HistoryTable() {
                   </td>
                   <td>{row.zone}</td>
                   <td>
-                    <span className="badge-status resolved">
+                    <span
+                      className={`badge-status ${row.status === "Notificada" ? "status-green" : "status-red"}`}
+                    >
                       {row.status.toUpperCase()}
                     </span>
                   </td>

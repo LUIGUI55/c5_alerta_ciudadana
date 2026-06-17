@@ -1,7 +1,6 @@
 import React from "react";
 
-function StatsPanel({ alerts }) {
-  const total = alerts.length;
+function StatsPanel({ alerts, totalShiftAlerts }) {
   const critical = alerts.filter((a) => a.priority_level === "crítico").length;
   const high = alerts.filter((a) => a.priority_level === "alto").length;
   const medium = alerts.filter((a) => a.priority_level === "medio").length;
@@ -46,7 +45,7 @@ function StatsPanel({ alerts }) {
 
         <div className="stat-box">
           <span className="stat-label">TOTAL TURNO ACTUAL</span>
-          <span className="stat-value">{total}</span>
+          <span className="stat-value">{totalShiftAlerts}</span>
           <div className="stat-footer">
             <span className="sub-label">Eventos procesados</span>
           </div>

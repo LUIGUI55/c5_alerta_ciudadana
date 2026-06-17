@@ -1,36 +1,29 @@
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
-const { createClient } = require('redis');
+const redis = require('redis');
 
 // ==========================================
 // CONFIGURACIÓN DE ENTORNO
 // ==========================================
-const PORT = process.env.PORT || 3000;
-const REDIS_URL = process.env.REDIS_URL || 'redis://c5_redis:6379';
-const REDIS_QUEUE_NAME = 'alertas_pendientes';
-
 const app = express();
 const server = http.createServer(app);
-
-// Configuración de CORS crucial para permitir que el frontend de React se conecte
 const io = new Server(server, {
   cors: {
-    origin: "*",
-    methods: ["GET", "POST"]
+    origin: '*', // En producción, restringir al dominio del frontend
+    methods: ['GET', 'POST']
   }
 });
 
-// ==========================================
-// CONEXIÓN A REDIS
-// ==========================================
-const redisClient = createClient({ url: REDIS_URL });
+const REDIS_URL = process.env.REDIS_URL || 'redis://redis:6379';
+const REDIS_QUEUE_NAME = 'alertas_pendientes';
 
-redisClient.on('error', (err) => console.error('[Redis Error]', err));
-redisClient.on('connect', () => console.log('[Redis] Conectado exitosamente. Listo para consumir cola.'));
+const redisClient = redis.createClient({ url: REDIS_URL });
+
+redisClient.on('error', (err) => console.log('[Redis Error] Fallo de conexión:', err));
 
 // ==========================================
-// LÓGICA DE WEBSOCKETS (CLIENTES)
+// CONEXIÓN WEBSOCKETS
 // ==========================================
 io.on('connection', (socket) => {
   console.log(`[WebSockets] Nuevo operador conectado. ID de sesión: ${socket.id}`);
@@ -41,34 +34,43 @@ io.on('connection', (socket) => {
 });
 
 // ==========================================
-// CONSUMIDOR DE LA COLA DE REDIS (WORKER)
+// WORKER TOLERANTE A FALLOS (POLLING RPOP)
 // ==========================================
-async function procesarCola() {
-  console.log(`[Worker] Iniciando monitoreo de la cola: ${REDIS_QUEUE_NAME}`);
+async function processQueue() {
+  console.log(`[Worker] Tolerancia a fallos activada. Monitoreando cola: ${REDIS_QUEUE_NAME}`);
 
-  // Bucle infinito para escuchar nuevas alertas
   while (true) {
     try {
-      // brPop (Blocking Right Pop): Bloquea la ejecución hasta que haya un elemento en la cola.
-      // El '0' significa que esperará indefinidamente sin agotar la CPU.
-      const resultado = await redisClient.brPop(REDIS_QUEUE_NAME, 0);
+      // SOLUCIÓN A LA CONDICIÓN DE CARRERA:
+      // Si no hay ningún dashboard de React conectado, no extraemos nada de Redis.
+      // Esperamos 1 segundo y volvemos a verificar.
+      if (io.sockets.sockets.size === 0) {
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        continue; // Salta a la siguiente iteración del ciclo
+      }
 
-      if (resultado) {
-        // resultado.element contiene el string JSON que guardó el MS de Prioridad
-        const alertaData = JSON.parse(resultado.element);
+      // Si llegamos aquí, hay al menos un operador conectado.
+      const result = await redisClient.rPop(REDIS_QUEUE_NAME);
 
-        console.log(`\n[Notificaciones] Alerta extraída de la bóveda: ${alertaData.alert_id}`);
-        console.log(`[Notificaciones] Prioridad: ${alertaData.priority_level} | Zona: ${alertaData.location_details.zone}`);
+      if (result) {
+        const alerta = JSON.parse(result);
+        console.log(`\n[Notificaciones] Extrayendo alerta de la bóveda: ${alerta.alert_id}`);
 
-        // Emitir el evento a todos los operadores conectados
-        io.emit('nueva_alerta', alertaData);
+        // Transmitir al frontend
+        io.emit('nueva_alerta', alerta);
 
+        console.log(`[Notificaciones] Prioridad: ${alerta.priority_level} | Zona: ${alerta.location_details?.zone}`);
         console.log(`[Notificaciones] Transmisión vía WebSocket completada.`);
+
+        // Pequeña pausa de 100ms entre alertas para no saturar el renderizado de React
+        await new Promise(resolve => setTimeout(resolve, 100));
+      } else {
+        // Cola vacía, descansar 1 segundo
+        await new Promise(resolve => setTimeout(resolve, 1000));
       }
     } catch (error) {
-      console.error('[Worker Error] Fallo al procesar elemento de Redis:', error.message);
-      // Pausa de 1 segundo antes de reintentar para evitar bucles infinitos de error
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      console.error('[Worker Error] Error al procesar la cola de Redis:', error.message);
+      await new Promise(resolve => setTimeout(resolve, 5000));
     }
   }
 }
@@ -76,15 +78,16 @@ async function procesarCola() {
 // ==========================================
 // INICIALIZACIÓN
 // ==========================================
-async function startServer() {
+async function startService() {
   await redisClient.connect();
+  console.log('[Redis] Conectado exitosamente.');
 
-  server.listen(PORT, () => {
-    console.log(`[Notificaciones] Servidor WebSocket escuchando en el puerto ${PORT}`);
-
-    // Iniciar el worker inmediatamente después de levantar el servidor
-    procesarCola();
+  server.listen(3001, () => {
+    console.log('[Notificaciones] Servidor WebSocket escuchando en el puerto 3001');
   });
+
+  // Iniciar el ciclo de consumo
+  processQueue();
 }
 
-startServer();
+startService();

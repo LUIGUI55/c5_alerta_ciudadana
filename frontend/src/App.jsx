@@ -6,15 +6,16 @@ import AlertFeed from "./components/AlertFeed";
 import MapPanel from "./components/MapPanel";
 import HistoryTable from "./components/HistoryTable";
 
-const socket = io(import.meta.env.VITE_WS_URL || "http://localhost:3000");
+const socket = io(import.meta.env.VITE_WS_URL || "http://localhost:3001");
 
 function App() {
   const [isConnected, setIsConnected] = useState(false);
   const [liveAlerts, setLiveAlerts] = useState([]);
 
-  // Nuevos estados para controlar la vista y el mapa
+  // estados para controlar la vista y el mapa
   const [activeView, setActiveView] = useState("dashboard");
   const [selectedAlert, setSelectedAlert] = useState(null);
+  const [totalShiftAlerts, setTotalShiftAlerts] = useState(0);
 
   useEffect(() => {
     socket.on("connect", () => setIsConnected(true));
@@ -22,6 +23,7 @@ function App() {
 
     socket.on("nueva_alerta", (alerta) => {
       setLiveAlerts((prevAlerts) => [alerta, ...prevAlerts]);
+      setTotalShiftAlerts((prevTotal) => prevTotal + 1);
     });
 
     return () => {
@@ -54,7 +56,10 @@ function App() {
           {activeView === "dashboard" ? (
             <>
               <div className="col-stats bento-card">
-                <StatsPanel alerts={liveAlerts} />
+                <StatsPanel
+                  alerts={liveAlerts}
+                  totalShiftAlerts={totalShiftAlerts}
+                />
               </div>
 
               <div className="col-map bento-card border-neon-blue">
