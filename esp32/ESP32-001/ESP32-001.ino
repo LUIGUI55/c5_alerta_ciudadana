@@ -7,9 +7,9 @@
 // ==========================================
 // CONFIGURACIÓN DE RED Y MQTT
 // ==========================================
-const char* ssid = "TP-Link_0F72";
-const char* password = "20496715";
-const char* mqtt_server = "192.168.0.106"; 
+const char* ssid = "SpaceX";
+const char* password = "Isic2026??$";
+const char* mqtt_server = "192.168.2.118"; 
 const int mqtt_port = 1883;
 const char* mqtt_topic = "c5/alertas";
 
